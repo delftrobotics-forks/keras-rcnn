@@ -8,6 +8,7 @@ import keras_rcnn.backend
 import keras_rcnn.layers
 import keras_rcnn.layers.object_detection._anchor_target
 
+from keras_rcnn.layers.object_detection._anchor_target import compute_bbox_weights
 
 # class TestAnchorTarget:
 #     def test_call(self):
@@ -19,7 +20,7 @@ import keras_rcnn.layers.object_detection._anchor_target
 #
 #         proposal_target.call([scores, gt_boxes, image])
 
-def test_label():
+def test_compute_labels():
     stride = 16
     feat_h, feat_w = (14, 14)
     img_info = keras.backend.variable([[224, 224, 3]])
@@ -31,7 +32,7 @@ def test_label():
 
     inds_inside, all_inside_bbox = keras_rcnn.layers.object_detection._anchor_target.inside_image(all_bbox, img_info[0])
 
-    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.label(gt_boxes, all_inside_bbox, inds_inside)
+    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.compute_labels(gt_boxes, all_inside_bbox, inds_inside)
 
     result1 = keras.backend.eval(argmax_overlaps_inds)
     result2 = keras.backend.eval(bbox_labels)
@@ -44,7 +45,7 @@ def test_label():
 
     assert numpy.min(result2) >= -1
 
-    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.label(gt_boxes, all_inside_bbox, inds_inside, clobber_positives=False)
+    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.compute_labels(gt_boxes, all_inside_bbox, inds_inside, clobber_positives=False)
 
     result1 = keras.backend.eval(argmax_overlaps_inds)
     result2 = keras.backend.eval(bbox_labels)
@@ -59,7 +60,7 @@ def test_label():
 
     gt_boxes = keras.backend.variable(224 * numpy.random.random((55, 4)))
     gt_boxes = tensorflow.convert_to_tensor(gt_boxes, dtype=tensorflow.float32)
-    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.label(gt_boxes, all_inside_bbox, inds_inside, clobber_positives=False)
+    argmax_overlaps_inds, bbox_labels = keras_rcnn.layers.object_detection._anchor_target.compute_labels(gt_boxes, all_inside_bbox, inds_inside, clobber_positives=False)
     result1 = keras.backend.eval(argmax_overlaps_inds)
     result2 = keras.backend.eval(bbox_labels)
 
@@ -106,10 +107,10 @@ def test_subsample_negative_labels():
     assert keras.backend.eval(keras.backend.sum(y) < keras.backend.sum(x))
 
 
-def test_balance():
+def test_subsample_labels():
     x = keras.backend.zeros((91,))
 
-    y = keras_rcnn.layers.object_detection._anchor_target.balance(x)
+    y = keras_rcnn.layers.object_detection._anchor_target.subsample_labels(x)
 
     numpy.testing.assert_array_equal(
         keras.backend.eval(x),
@@ -118,7 +119,7 @@ def test_balance():
 
     x = keras.backend.ones((91,))
 
-    y = keras_rcnn.layers.object_detection._anchor_target.balance(x)
+    y = keras_rcnn.layers.object_detection._anchor_target.subsample_labels(x)
 
     numpy.testing.assert_array_equal(
         keras.backend.eval(x),
@@ -127,12 +128,12 @@ def test_balance():
 
     x = keras.backend.ones((1000,))
 
-    y = keras_rcnn.layers.object_detection._anchor_target.balance(x)
+    y = keras_rcnn.layers.object_detection._anchor_target.subsample_labels(x)
 
     assert keras.backend.eval(keras.backend.sum(y) < keras.backend.sum(x))
 
 
-def test_overlapping():
+def test_compute_overlaps():
     stride = 16
     features = (14, 14)
     img_info = keras.backend.variable([[224, 224, 3]])
@@ -145,7 +146,7 @@ def test_overlapping():
     inds_inside, all_inside_anchors = keras_rcnn.layers.object_detection._anchor_target.inside_image(
         all_anchors, img_info)
 
-    argmax_overlaps_inds, max_overlaps, gt_argmax_overlaps_inds = keras_rcnn.layers.object_detection._anchor_target.overlapping(
+    argmax_overlaps_inds, max_overlaps, gt_argmax_overlaps_inds = keras_rcnn.layers.object_detection._anchor_target.compute_overlaps(
         all_inside_anchors, gt_boxes, inds_inside)
 
     argmax_overlaps_inds = keras.backend.eval(argmax_overlaps_inds)
@@ -172,7 +173,7 @@ def test_unmap():
 
     inds_inside, all_inside_anchors = keras_rcnn.layers.object_detection._anchor_target.inside_image(all_anchors, img_info[0])
 
-    argmax_overlaps_indices, labels = keras_rcnn.layers.object_detection._anchor_target.label(gt_boxes, all_inside_anchors, inds_inside)
+    argmax_overlaps_indices, labels = keras_rcnn.layers.object_detection._anchor_target.compute_labels(gt_boxes, all_inside_anchors, inds_inside)
     bbox_reg_targets = keras_rcnn.backend.bbox_transform(all_inside_anchors, keras.backend.gather(gt_boxes, argmax_overlaps_indices))
 
     labels = keras_rcnn.layers.object_detection._anchor_target.unmap(labels, total_anchors, inds_inside, fill=-1)
@@ -199,3 +200,27 @@ def test_inside_image():
     all_inside_anchors = keras.backend.eval(all_inside_anchors)
 
     assert all_inside_anchors.shape == (84, 4)
+
+def test_compute_bbox_weights():
+    positive_weight = -1.0
+    inside_weights  = [1.0, 0.5, 0.7, 1.0]
+
+    anchors = keras.backend.constant([[30, 20, 50, 30], [10, 15, 20, 25], [5, 15, 20, 22]])
+    labels  = keras.backend.constant([1, 0, 1])
+
+    inside, outside  = compute_bbox_weights(anchors, labels, positive_weight, inside_weights)
+    expected_outside = keras.backend.ones_like(anchors, dtype=keras.backend.floatx()) / 3
+    expected_inside  = keras.backend.constant(numpy.array([[1.0, 0.5, 0.7, 1.0],
+                                                           [0.0, 0.0, 0.0, 0.0],
+                                                           [1.0, 0.5, 0.7, 1.0]]))
+
+    assert numpy.all((keras.backend.eval(keras.backend.equal(inside,  expected_inside)) [0]))
+    assert numpy.all((keras.backend.eval(keras.backend.equal(outside, expected_outside))[0]))
+
+    positive_weight  = 0.6
+    _, outside       = compute_bbox_weights(anchors, labels, positive_weight, inside_weights)
+    expected_outside = keras.backend.constant(numpy.array([[0.3, 0.3, 0.3, 0.3],
+                                                           [0.4, 0.4, 0.4, 0.4],
+                                                           [0.3, 0.3, 0.3, 0.3]]))
+
+    assert numpy.all((keras.backend.eval(keras.backend.equal(outside, expected_outside))[0]))

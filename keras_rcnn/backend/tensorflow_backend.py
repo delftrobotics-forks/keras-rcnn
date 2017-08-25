@@ -2,6 +2,10 @@ import keras.backend
 import tensorflow
 
 
+def transpose(a, perm=None, name='transpose'):
+    return tensorflow.transpose(a, perm, name)
+
+
 def shuffle(x):
     """
     Modify a sequence by shuffling its contents. This function only shuffles
